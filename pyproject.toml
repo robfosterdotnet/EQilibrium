@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "roomeq"
+name = "eqilibrium"
 version = "0.1.0"
-description = "Simple Room EQ Wizard for RME Audio Interfaces"
+description = "A guided room correction wizard for audio interfaces with parametric EQ"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [
     { name = "Rob Foster" }
 ]
-keywords = ["audio", "room-correction", "eq", "rme", "dsp"]
+keywords = ["audio", "room-correction", "eq", "parametric-eq", "dsp", "measurement"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: MacOS X",
@@ -44,10 +44,11 @@ dev = [
 ]
 
 [project.scripts]
-roomeq = "roomeq.app:main"
+eqilibrium = "roomeq.app:main"
+roomeq = "roomeq.app:main"  # Legacy alias
 
 [project.gui-scripts]
-roomeq-gui = "roomeq.app:main"
+eqilibrium-gui = "roomeq.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/roomeq"]
