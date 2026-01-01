@@ -3,6 +3,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -11,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWizardPage,
 )
 
-from roomeq.ui.widgets import PositionDiagram
+from roomeq.ui.widgets import MeasurementUnits, PositionDiagram
 
 
 class ListeningPositionPage(QWizardPage):
@@ -85,6 +86,20 @@ class ListeningPositionPage(QWizardPage):
 
         positions_group.setLayout(positions_layout)
         right_layout.addWidget(positions_group)
+
+        # Unit system toggle
+        units_group = QGroupBox("Distance Units")
+        units_layout = QVBoxLayout()
+
+        self.imperial_checkbox = QCheckBox("Use imperial units (feet/inches)")
+        self.imperial_checkbox.setToolTip(
+            "Switch between metric (cm) and imperial (feet/inches) for position descriptions"
+        )
+        self.imperial_checkbox.toggled.connect(self._on_units_changed)
+        units_layout.addWidget(self.imperial_checkbox)
+
+        units_group.setLayout(units_layout)
+        right_layout.addWidget(units_group)
 
         # Measurement mode
         mode_group = QGroupBox("Measurement Mode")
@@ -199,6 +214,17 @@ class ListeningPositionPage(QWizardPage):
             'quick' for both speakers simultaneously, 'full' for L/R separate
         """
         return "quick" if self.mode_group.checkedId() == 0 else "full"
+
+    def _on_units_changed(self, checked: bool) -> None:
+        """Handle unit system change."""
+        # This will be used by the measurement page
+        pass
+
+    def get_units(self) -> MeasurementUnits:
+        """Get the selected measurement unit system."""
+        if self.imperial_checkbox.isChecked():
+            return MeasurementUnits.IMPERIAL
+        return MeasurementUnits.METRIC
 
     def initializePage(self) -> None:  # noqa: N802
         """Initialize when page is shown."""

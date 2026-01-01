@@ -1,8 +1,41 @@
 """Measurement position diagram widget."""
 
+from enum import Enum
+
 from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
+
+
+class MeasurementUnits(Enum):
+    """Unit system for measurement distances."""
+
+    METRIC = "metric"
+    IMPERIAL = "imperial"
+
+
+def format_distance(cm: float, units: MeasurementUnits) -> str:
+    """Format a distance in the specified unit system.
+
+    Args:
+        cm: Distance in centimeters
+        units: Unit system to use
+
+    Returns:
+        Formatted distance string (e.g., "30cm" or "12 inches")
+    """
+    if units == MeasurementUnits.IMPERIAL:
+        inches = cm / 2.54
+        if inches >= 12:
+            feet = int(inches / 12)
+            remaining_inches = int(inches % 12)
+            if remaining_inches == 0:
+                return f"{feet} foot" if feet == 1 else f"{feet} feet"
+            return f"{feet}'{remaining_inches}\""
+        rounded = int(round(inches))
+        return f"{rounded} inch" if rounded == 1 else f"{rounded} inches"
+    else:
+        return f"{int(cm)}cm"
 
 
 class PositionDiagram(QWidget):
@@ -281,27 +314,49 @@ class MicPositionGuide(QWidget):
         super().__init__(parent)
 
         self._position_number = 1
-        # Position descriptions aligned with core/measurement.py STANDARD_POSITIONS
-        # UI uses 1-indexed (position 1 = core position 0)
-        self._position_descriptions = {
-            1: ("Center", "At ear height, facing speakers"),
-            2: ("Left", "Offset 30cm to your left"),
-            3: ("Right", "Offset 30cm to your right"),
-            4: ("Front Left", "30cm forward, 15cm left (diagonal)"),
-            5: ("Front Right", "30cm forward, 15cm right (diagonal)"),
-            6: ("Back", "Offset 30cm away from speakers"),
-            7: ("Up", "Raise microphone 30cm higher"),
-            # 9-position layout adds:
-            8: ("Back Left", "30cm back, 15cm left (diagonal)"),
-            9: ("Back Right", "30cm back, 15cm right (diagonal)"),
-        }
+        self._units = MeasurementUnits.METRIC
 
         self.setMinimumSize(200, 100)
+
+    def _get_position_descriptions(self) -> dict[int, tuple[str, str]]:
+        """Get position descriptions with current unit formatting.
+
+        Returns:
+            Dict mapping position number to (name, description) tuple
+        """
+        d30 = format_distance(30, self._units)
+        d15 = format_distance(15, self._units)
+
+        return {
+            1: ("Center", "At ear height, facing speakers"),
+            2: ("Left", f"Offset {d30} to your left"),
+            3: ("Right", f"Offset {d30} to your right"),
+            4: ("Front Left", f"{d30} forward, {d15} left (diagonal)"),
+            5: ("Front Right", f"{d30} forward, {d15} right (diagonal)"),
+            6: ("Back", f"Offset {d30} away from speakers"),
+            7: ("Up", f"Raise microphone {d30} higher"),
+            # 9-position layout adds:
+            8: ("Back Left", f"{d30} back, {d15} left (diagonal)"),
+            9: ("Back Right", f"{d30} back, {d15} right (diagonal)"),
+        }
 
     def set_position(self, position: int) -> None:
         """Set the current position to describe."""
         self._position_number = position
         self.update()
+
+    def set_units(self, units: MeasurementUnits) -> None:
+        """Set the measurement unit system.
+
+        Args:
+            units: MeasurementUnits.METRIC or MeasurementUnits.IMPERIAL
+        """
+        self._units = units
+        self.update()
+
+    def get_units(self) -> MeasurementUnits:
+        """Get the current measurement unit system."""
+        return self._units
 
     def paintEvent(self, event) -> None:  # noqa: N802
         """Draw the position guide."""
@@ -316,8 +371,9 @@ class MicPositionGuide(QWidget):
         painter.setPen(QPen(QColor(100, 149, 237), 2))
         painter.drawRect(0, 0, width - 1, height - 1)
 
-        # Get position info
-        name, description = self._position_descriptions.get(
+        # Get position info with current units
+        descriptions = self._get_position_descriptions()
+        name, description = descriptions.get(
             self._position_number,
             ("Unknown", "")
         )

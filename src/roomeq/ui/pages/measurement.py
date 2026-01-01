@@ -645,6 +645,11 @@ class MeasurementPage(QWizardPage):
                     self._positions = get_positions(num_pos)
                     self.position_diagram.set_num_positions(num_pos)
 
+                # Apply unit preference to position guide
+                if hasattr(listening_page, 'get_units'):
+                    units = listening_page.get_units()
+                    self.position_guide.set_units(units)
+
             # Get device configuration from device setup page
             device_page = wizard.page(wizard.PAGE_DEVICE_SETUP)
             if device_page and hasattr(device_page, 'get_device'):
