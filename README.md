@@ -6,18 +6,18 @@ EQilibrium simplifies room acoustic measurement and correction by providing a st
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-214%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-240%20passing-brightgreen.svg)]()
 
 ## Features
 
 - **Guided Wizard Workflow** - Step-by-step process eliminates guesswork
-- **Auto-Detection** - Automatically finds compatible audio interfaces
+- **Works with Any Interface** - Compatible with any CoreAudio audio interface
 - **Visual Mic Placement** - Clear diagrams show exactly where to position your microphone
 - **Multi-Position Averaging** - Measures from 5-9 positions for accurate room response
 - **Smart Analysis** - Identifies peaks, dips, and room modes with severity ratings
 - **Best Practices Built-In** - Prioritizes cuts over boosts, warns about uncorrectable issues
-- **9-Band Parametric EQ** - Optimized correction within hardware constraints
-- **RME TotalMix Export** - Direct export to `.tmreq` format for RME interfaces
+- **Configurable EQ Profiles** - Adapts to different hardware constraints
+- **Multiple Export Formats** - RME TotalMix (`.tmreq`), REW-compatible text, or manual entry tables
 
 ## Why EQilibrium?
 
@@ -29,15 +29,34 @@ Room correction software like REW (Room EQ Wizard) is powerful but complex. EQil
 | Configuration options | Hundreds | Just what you need |
 | Workflow | Manual | Guided wizard |
 | Purpose | General measurement | Room correction only |
-| Export to RME | Manual copy/paste | One-click export |
+| Export formats | Many (requires setup) | One-click (RME, REW, manual) |
 
 ## Requirements
 
 - **Operating System**: macOS 11.0+ (Big Sur or later)
 - **Python**: 3.11 or higher
-- **Audio Interface**: Any CoreAudio-compatible interface (RME recommended)
+- **Audio Interface**: Any CoreAudio-compatible interface
 - **Measurement Microphone**: Calibrated measurement mic (e.g., miniDSP UMIK-1, Dayton EMM-6)
-- **For RME Users**: TotalMix FX 1.96+ for Room EQ import
+
+## Supported Interfaces
+
+EQilibrium works with any CoreAudio-compatible audio interface. It automatically detects devices from:
+
+- **RME** - Full support with direct `.tmreq` export to TotalMix Room EQ
+- **Focusrite** - Scarlett, Clarett series
+- **MOTU** - M2, M4, UltraLite, 828 series
+- **Universal Audio** - Apollo, Volt series
+- **PreSonus** - AudioBox, Studio series
+- **Audient** - iD series
+- **And many more** - Any device that appears in macOS Audio MIDI Setup
+
+### Export Format Options
+
+| Interface | Recommended Export | Notes |
+|-----------|-------------------|-------|
+| RME with Room EQ | TotalMix (`.tmreq`) | Direct import to Room EQ panel |
+| Other interfaces | REW Text (`.txt`) | Import into most EQ software |
+| Any interface | Manual Display | Copy values to any EQ manually |
 
 ## Installation
 
@@ -116,10 +135,13 @@ Review the checklist and optionally load an existing project or microphone calib
 - Toggle smoothing for clearer view
 
 #### Step 6: Export
-- Generated 9-band parametric EQ
-- Before/after comparison
-- Export to RME TotalMix `.tmreq` format
-- Step-by-step import instructions
+- Generated parametric EQ (up to 9 bands for RME, 31 for generic)
+- Before/after comparison graph
+- Choose export format based on your interface:
+  - **RME TotalMix**: Direct `.tmreq` export
+  - **REW Text**: Compatible with most EQ software
+  - **Manual Display**: Human-readable table for manual entry
+- Step-by-step import instructions for each format
 
 ### Measurement Positions
 
@@ -194,13 +216,15 @@ EQilibrium/
 │   │   ├── analysis.py          # Problem detection, severity classification
 │   │   ├── eq_optimizer.py      # Parametric EQ fitting algorithm
 │   │   ├── biquad.py            # Filter coefficient calculation
-│   │   └── rme_export.py        # TotalMix .tmreq export
+│   │   ├── interface_profiles.py # Hardware profiles and EQ constraints
+│   │   ├── export_formats.py    # Multi-format export (RME, REW, manual)
+│   │   └── rme_export.py        # TotalMix .tmreq export (backward compat)
 │   ├── ui/
 │   │   ├── wizard.py            # Main QWizard framework
 │   │   ├── pages/               # 6 wizard step pages
 │   │   └── widgets/             # Level meter, frequency plot, position diagram
 │   └── session/                 # Project save/load
-├── tests/                       # 214 tests covering all modules
+├── tests/                       # 240 tests covering all modules
 ├── pyproject.toml
 └── README.md
 ```
@@ -251,9 +275,9 @@ mypy src
 | PyQt6 | Desktop UI framework |
 | pyqtgraph | High-performance plotting |
 
-## Importing to RME TotalMix
+## Importing EQ Settings
 
-After exporting your `.tmreq` file:
+### RME TotalMix (`.tmreq` files)
 
 1. Open **TotalMix FX**
 2. Click the **Room EQ** button (or press F8)
@@ -263,6 +287,25 @@ After exporting your `.tmreq` file:
 6. Click **Open**
 
 The EQ settings will be loaded into the Room EQ section. Enable Room EQ to hear the correction.
+
+### REW Text Format (`.txt` files)
+
+The REW-compatible text format can be imported into various EQ applications:
+- **Equalizer APO** (Windows): Import as Filter Settings file
+- **AU Lab** (macOS): Configure parametric EQ manually from values
+- **DAW plugins**: Most parametric EQ plugins accept these values
+
+### Manual Entry
+
+The Manual Display format provides a clean table you can use to configure any parametric EQ:
+
+```
+Band | Type | Frequency | Gain   | Q
+-----|------|-----------|--------|------
+1    | Peak | 63 Hz     | -6.0dB | 4.3
+2    | Peak | 125 Hz    | +4.5dB | 3.2
+...
+```
 
 ## Limitations
 

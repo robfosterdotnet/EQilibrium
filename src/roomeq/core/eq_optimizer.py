@@ -1,7 +1,7 @@
 """EQ optimization algorithm.
 
 Optimizes parametric EQ settings to correct room frequency response,
-respecting RME TotalMix constraints (9 bands max, Q 0.4-9.9, etc.).
+respecting interface-specific constraints (band count, Q range, etc.).
 """
 
 from dataclasses import dataclass
@@ -16,20 +16,12 @@ from roomeq.core.biquad import (
     FilterType,
     calculate_combined_response,
 )
+from roomeq.core.interface_profiles import (
+    DEFAULT_PROFILE,
+    InterfaceProfile,
+)
 
-# RME TotalMix Room EQ constraints
-RME_MIN_FREQ = 20.0
-RME_MAX_FREQ = 20000.0
-RME_FREQ_STEP = 1.0
-RME_MIN_GAIN = -20.0
-RME_MAX_GAIN = 20.0
-RME_GAIN_STEP = 0.1
-RME_MIN_Q = 0.4
-RME_MAX_Q = 9.9
-RME_Q_STEP = 0.1
-RME_MAX_BANDS = 9
-
-# Room correction best practices constraints
+# Room correction best practices constraints (universal, not interface-specific)
 # Boosting dips is generally ineffective and can cause distortion
 # See: https://housecurve.com/docs/tuning/equalization
 # See: https://www.psaudio.com/blogs/copper/using-eq-with-speakers-some-limitations
@@ -63,24 +55,33 @@ class OptimizationResult:
     improvement_db: float
 
 
-def round_to_rme_precision(band: EQBand) -> EQBand:
+def round_to_profile_precision(
+    band: EQBand,
+    profile: InterfaceProfile | None = None,
+) -> EQBand:
     """
-    Round EQ band parameters to RME precision.
+    Round EQ band parameters to interface precision.
 
     Args:
         band: EQ band to round
+        profile: Interface profile with constraints (defaults to RME)
 
     Returns:
         New EQBand with rounded values
     """
-    freq = round(band.frequency / RME_FREQ_STEP) * RME_FREQ_STEP
-    freq = np.clip(freq, RME_MIN_FREQ, RME_MAX_FREQ)
+    if profile is None:
+        profile = DEFAULT_PROFILE
 
-    gain = round(band.gain / RME_GAIN_STEP) * RME_GAIN_STEP
-    gain = np.clip(gain, RME_MIN_GAIN, RME_MAX_GAIN)
+    c = profile.constraints
 
-    q = round(band.q / RME_Q_STEP) * RME_Q_STEP
-    q = np.clip(q, RME_MIN_Q, RME_MAX_Q)
+    freq = round(band.frequency / c.freq_step) * c.freq_step
+    freq = np.clip(freq, c.min_freq, c.max_freq)
+
+    gain = round(band.gain / c.gain_step) * c.gain_step
+    gain = np.clip(gain, c.min_gain, c.max_gain)
+
+    q = round(band.q / c.q_step) * c.q_step
+    q = np.clip(q, c.min_q, c.max_q)
 
     return EQBand(
         filter_type=band.filter_type,
@@ -91,29 +92,37 @@ def round_to_rme_precision(band: EQBand) -> EQBand:
     )
 
 
-def validate_for_rme(bands: list[EQBand]) -> list[str]:
+def validate_for_profile(
+    bands: list[EQBand],
+    profile: InterfaceProfile | None = None,
+) -> list[str]:
     """
-    Validate EQ bands against RME constraints.
+    Validate EQ bands against interface constraints.
 
     Args:
         bands: List of EQ bands to validate
+        profile: Interface profile with constraints (defaults to RME)
 
     Returns:
         List of validation error messages (empty if valid)
     """
+    if profile is None:
+        profile = DEFAULT_PROFILE
+
+    c = profile.constraints
     errors = []
 
-    if len(bands) > RME_MAX_BANDS:
-        errors.append(f"Too many bands: {len(bands)} (max {RME_MAX_BANDS})")
+    if len(bands) > c.max_bands:
+        errors.append(f"Too many bands: {len(bands)} (max {c.max_bands})")
 
     for i, band in enumerate(bands):
-        if not RME_MIN_FREQ <= band.frequency <= RME_MAX_FREQ:
+        if not c.min_freq <= band.frequency <= c.max_freq:
             errors.append(f"Band {i + 1}: Frequency {band.frequency} Hz out of range")
 
-        if not RME_MIN_GAIN <= band.gain <= RME_MAX_GAIN:
+        if not c.min_gain <= band.gain <= c.max_gain:
             errors.append(f"Band {i + 1}: Gain {band.gain} dB out of range")
 
-        if not RME_MIN_Q <= band.q <= RME_MAX_Q:
+        if not c.min_q <= band.q <= c.max_q:
             errors.append(f"Band {i + 1}: Q {band.q} out of range")
 
     return errors
@@ -121,7 +130,7 @@ def validate_for_rme(bands: list[EQBand]) -> list[str]:
 
 def initialize_bands_from_problems(
     problems: list[RoomProblem],
-    max_bands: int = RME_MAX_BANDS,
+    profile: InterfaceProfile | None = None,
 ) -> list[EQBand]:
     """
     Initialize EQ bands from detected room problems.
@@ -136,11 +145,16 @@ def initialize_bands_from_problems(
 
     Args:
         problems: List of detected room problems
-        max_bands: Maximum number of bands to create
+        profile: Interface profile with constraints (defaults to RME)
 
     Returns:
         List of initial EQ bands
     """
+    if profile is None:
+        profile = DEFAULT_PROFILE
+
+    max_bands = profile.constraints.max_bands
+
     # Prioritize problems
     prioritized = prioritize_problems(problems, max_count=max_bands)
 
@@ -168,7 +182,7 @@ def initialize_bands_from_problems(
             q=problem.q_factor,
             enabled=True,
         )
-        band = round_to_rme_precision(band)
+        band = round_to_profile_precision(band, profile)
 
         # Skip bands with negligible correction
         if abs(band.gain) < 0.5:
@@ -233,6 +247,7 @@ def params_to_bands(
 def get_parameter_bounds(
     n_bands: int,
     initial_bands: list[EQBand] | None = None,
+    profile: InterfaceProfile | None = None,
 ) -> list[tuple[float, float]]:
     """
     Get parameter bounds for optimization.
@@ -240,8 +255,19 @@ def get_parameter_bounds(
     Uses tighter bounds based on room correction best practices:
     - Frequency limited to effective correction range
     - Gain limited based on whether correcting a peak or dip
+    - Q bounds from interface profile
+
+    Args:
+        n_bands: Number of bands
+        initial_bands: Initial band settings (for asymmetric gain bounds)
+        profile: Interface profile with constraints (defaults to RME)
     """
+    if profile is None:
+        profile = DEFAULT_PROFILE
+
+    c = profile.constraints
     bounds = []
+
     for i in range(n_bands):
         # Frequency bounds - focus on effective correction range
         bounds.append((np.log10(CORRECTION_MIN_FREQ), np.log10(CORRECTION_MAX_FREQ)))
@@ -260,8 +286,8 @@ def get_parameter_bounds(
             # Default: allow cuts, limit boosts
             bounds.append((CORRECTION_MAX_CUT, CORRECTION_MAX_BOOST))
 
-        # Q bounds
-        bounds.append((np.log10(RME_MIN_Q), np.log10(RME_MAX_Q)))
+        # Q bounds from profile
+        bounds.append((np.log10(c.min_q), np.log10(c.max_q)))
 
     return bounds
 
@@ -317,7 +343,7 @@ def optimize_eq(
     target_db: NDArray[np.float64],
     problems: list[RoomProblem],
     sample_rate: int = 48000,
-    max_bands: int = RME_MAX_BANDS,
+    profile: InterfaceProfile | None = None,
     max_iterations: int = 500,
 ) -> OptimizationResult:
     """
@@ -329,18 +355,21 @@ def optimize_eq(
         target_db: Target frequency response in dB
         problems: Detected room problems (for initialization)
         sample_rate: Sample rate in Hz
-        max_bands: Maximum number of EQ bands
+        profile: Interface profile with constraints (defaults to RME)
         max_iterations: Maximum optimization iterations
 
     Returns:
         OptimizationResult with optimized settings
     """
+    if profile is None:
+        profile = DEFAULT_PROFILE
+
     # Calculate original deviation
     original_deviation = response_db - target_db
     original_rms = float(np.sqrt(np.mean(original_deviation**2)))
 
     # Initialize bands from detected problems
-    initial_bands = initialize_bands_from_problems(problems, max_bands)
+    initial_bands = initialize_bands_from_problems(problems, profile)
 
     if not initial_bands:
         # No problems detected, return empty settings
@@ -358,7 +387,7 @@ def optimize_eq(
     initial_params = bands_to_params(initial_bands)
 
     # Get bounds (with knowledge of initial bands for asymmetric gain limits)
-    bounds = get_parameter_bounds(len(initial_bands), initial_bands)
+    bounds = get_parameter_bounds(len(initial_bands), initial_bands, profile)
 
     # Optimize
     result = minimize(
@@ -373,8 +402,8 @@ def optimize_eq(
     # Convert back to bands
     optimized_bands = params_to_bands(result.x, filter_types)
 
-    # Round to RME precision
-    final_bands = [round_to_rme_precision(b) for b in optimized_bands]
+    # Round to interface precision
+    final_bands = [round_to_profile_precision(b, profile) for b in optimized_bands]
 
     # Remove bands with very small gain (< 0.5 dB)
     final_bands = [b for b in final_bands if abs(b.gain) >= 0.5]
@@ -401,6 +430,7 @@ def quick_optimize(
     target_db: NDArray[np.float64],
     problems: list[RoomProblem],
     sample_rate: int = 48000,
+    profile: InterfaceProfile | None = None,
 ) -> EQSettings:
     """
     Quick optimization using only initial problem-based bands.
@@ -408,6 +438,38 @@ def quick_optimize(
     No iterative optimization - just uses inverse of detected problems.
     Faster but less optimal than full optimize_eq.
     """
-    bands = initialize_bands_from_problems(problems, RME_MAX_BANDS)
+    if profile is None:
+        profile = DEFAULT_PROFILE
+
+    bands = initialize_bands_from_problems(problems, profile)
 
     return EQSettings(bands=bands, channel="")
+
+
+# =============================================================================
+# Backward Compatibility Aliases
+# =============================================================================
+# These maintain compatibility with existing code that uses RME-specific names
+
+
+def round_to_rme_precision(band: EQBand) -> EQBand:
+    """Backward compatibility alias for round_to_profile_precision with RME profile."""
+    return round_to_profile_precision(band, DEFAULT_PROFILE)
+
+
+def validate_for_rme(bands: list[EQBand]) -> list[str]:
+    """Backward compatibility alias for validate_for_profile with RME profile."""
+    return validate_for_profile(bands, DEFAULT_PROFILE)
+
+
+# Re-export RME constants for backward compatibility
+RME_MIN_FREQ = DEFAULT_PROFILE.constraints.min_freq
+RME_MAX_FREQ = DEFAULT_PROFILE.constraints.max_freq
+RME_FREQ_STEP = DEFAULT_PROFILE.constraints.freq_step
+RME_MIN_GAIN = DEFAULT_PROFILE.constraints.min_gain
+RME_MAX_GAIN = DEFAULT_PROFILE.constraints.max_gain
+RME_GAIN_STEP = DEFAULT_PROFILE.constraints.gain_step
+RME_MIN_Q = DEFAULT_PROFILE.constraints.min_q
+RME_MAX_Q = DEFAULT_PROFILE.constraints.max_q
+RME_Q_STEP = DEFAULT_PROFILE.constraints.q_step
+RME_MAX_BANDS = DEFAULT_PROFILE.constraints.max_bands

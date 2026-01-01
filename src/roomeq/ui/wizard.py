@@ -21,7 +21,7 @@ class RoomEQWizard(QWizard):
     3. Listening Position - Number of measurement positions
     4. Measurement - Capture sweeps at each position
     5. Analysis - Review frequency response and problems
-    6. Export - Save EQ settings for TotalMix
+    6. Export - Save EQ settings in various formats
     """
 
     # Page IDs
@@ -35,7 +35,7 @@ class RoomEQWizard(QWizard):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.setWindowTitle("RoomEQ - Room Correction Wizard")
+        self.setWindowTitle("EQilibrium - Room Correction Wizard")
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
         self.setMinimumSize(900, 700)
 

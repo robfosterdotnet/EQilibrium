@@ -25,7 +25,7 @@ class WelcomePage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.setTitle("Welcome to RoomEQ")
+        self.setTitle("Welcome to EQilibrium")
         self.setSubTitle(
             "This wizard will guide you through measuring and correcting "
             "your room's frequency response."
@@ -40,11 +40,11 @@ class WelcomePage(QWizardPage):
 
         # Introduction text
         intro_label = QLabel(
-            "<p>RoomEQ helps you achieve accurate sound reproduction by:</p>"
+            "<p>EQilibrium helps you achieve accurate sound reproduction by:</p>"
             "<ol>"
             "<li>Measuring your room's frequency response at multiple positions</li>"
             "<li>Analyzing peaks and dips caused by room acoustics</li>"
-            "<li>Generating correction EQ settings for your RME interface</li>"
+            "<li>Generating parametric EQ correction settings</li>"
             "</ol>"
             "<p>The process takes about 15-20 minutes and requires minimal interaction.</p>"
         )
@@ -56,7 +56,7 @@ class WelcomePage(QWizardPage):
         checklist_group = QGroupBox("Before You Begin")
         checklist_layout = QVBoxLayout()
 
-        self.check_rme = QCheckBox("RME audio interface is connected and powered on")
+        self.check_rme = QCheckBox("Audio interface is connected and powered on")
         self.check_mic = QCheckBox("Measurement microphone is connected to an input")
         self.check_speakers = QCheckBox("Studio monitors are connected and at listening volume")
         self.check_quiet = QCheckBox("Room is quiet (no fans, AC, traffic noise)")
@@ -119,9 +119,9 @@ class WelcomePage(QWizardPage):
         """Open dialog to load existing project."""
         filename, _ = QFileDialog.getOpenFileName(
             self,
-            "Load RoomEQ Project",
+            "Load EQilibrium Project",
             "",
-            "RoomEQ Projects (*.roomeq);;All Files (*)"
+            "EQilibrium Projects (*.eqlib);;All Files (*)"
         )
         if filename:
             # TODO: Load project file

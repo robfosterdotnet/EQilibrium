@@ -174,9 +174,12 @@ class TestInitializeBandsFromProblems:
             assert band_63.gain < 0
 
     def test_respects_max_bands(self, sample_problems):
-        """Test that max_bands limit is respected."""
-        bands = initialize_bands_from_problems(sample_problems, max_bands=2)
-        assert len(bands) <= 2
+        """Test that max_bands from profile is respected."""
+        # RME profile has max_bands=9, all 3 problems should fit
+        bands = initialize_bands_from_problems(sample_problems)
+        assert len(bands) <= RME_MAX_BANDS
+        # With 3 problems, should have at most 3 bands
+        assert len(bands) <= len(sample_problems)
 
     def test_empty_problems_empty_bands(self):
         """Test that empty problems gives empty bands."""

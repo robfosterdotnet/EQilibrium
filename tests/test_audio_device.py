@@ -8,6 +8,7 @@ import pytest
 from roomeq.core.audio_device import (
     AudioDevice,
     AudioDeviceManager,
+    KNOWN_MANUFACTURERS,
     LevelMonitor,
     RME_PATTERNS,
 )
@@ -24,7 +25,6 @@ class TestAudioDevice:
             max_input_channels=2,
             max_output_channels=0,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
         assert device_with_inputs.has_inputs is True
@@ -35,7 +35,6 @@ class TestAudioDevice:
             max_input_channels=0,
             max_output_channels=2,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
         assert device_no_inputs.has_inputs is False
@@ -48,7 +47,6 @@ class TestAudioDevice:
             max_input_channels=0,
             max_output_channels=2,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
         assert device_with_outputs.has_outputs is True
@@ -59,18 +57,72 @@ class TestAudioDevice:
             max_input_channels=2,
             max_output_channels=0,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
         assert device_no_outputs.has_outputs is False
 
+    def test_is_rme_property(self):
+        """Test is_rme computed property."""
+        rme_device = AudioDevice(
+            id=0,
+            name="RME UCX II",
+            max_input_channels=20,
+            max_output_channels=22,
+            default_sample_rate=48000,
+            hostapi="Core Audio",
+            manufacturer="rme",
+        )
+        assert rme_device.is_rme is True
 
-class TestRMEDetection:
-    """Tests for RME device detection."""
+        non_rme_device = AudioDevice(
+            id=1,
+            name="Focusrite Scarlett",
+            max_input_channels=2,
+            max_output_channels=2,
+            default_sample_rate=48000,
+            hostapi="Core Audio",
+            manufacturer="focusrite",
+        )
+        assert non_rme_device.is_rme is False
+
+
+class TestManufacturerDetection:
+    """Tests for manufacturer detection."""
+
+    def test_known_manufacturers_exist(self):
+        """Test that known manufacturers are defined."""
+        assert len(KNOWN_MANUFACTURERS) > 0
+        assert "rme" in KNOWN_MANUFACTURERS
+        assert "focusrite" in KNOWN_MANUFACTURERS
+        assert "motu" in KNOWN_MANUFACTURERS
 
     def test_rme_patterns_exist(self):
-        """Test that RME patterns are defined."""
+        """Test that RME patterns are defined (backward compatibility)."""
         assert len(RME_PATTERNS) > 0
+
+    @pytest.mark.parametrize(
+        "name,expected_manufacturer",
+        [
+            ("RME UCX II", "rme"),
+            ("RME Fireface UCX", "rme"),
+            ("Fireface 802 FS", "rme"),
+            ("RME UFX+", "rme"),
+            ("RME Babyface Pro", "rme"),
+            ("RME ADI-2 DAC", "rme"),
+            ("MADIface XT", "rme"),
+            ("RME Digiface USB", "rme"),
+            ("Focusrite Scarlett 2i2", "focusrite"),
+            ("Universal Audio Apollo", "universal_audio"),
+            ("MOTU M4", "motu"),
+            ("PreSonus AudioBox", "presonus"),
+            ("Built-in Microphone", ""),
+            ("MacBook Pro Speakers", ""),
+        ],
+    )
+    def test_detect_manufacturer(self, name, expected_manufacturer):
+        """Test manufacturer detection by name."""
+        manufacturer = AudioDeviceManager._detect_manufacturer(name)
+        assert manufacturer == expected_manufacturer
 
     @pytest.mark.parametrize(
         "name,expected",
@@ -78,27 +130,20 @@ class TestRMEDetection:
             ("RME UCX II", True),
             ("RME Fireface UCX", True),
             ("Fireface 802 FS", True),
-            ("RME UFX+", True),
-            ("RME Babyface Pro", True),
-            ("RME ADI-2 DAC", True),
-            ("MADIface XT", True),
-            ("RME Digiface USB", True),
             ("Built-in Microphone", False),
-            ("MacBook Pro Speakers", False),
             ("Focusrite Scarlett 2i2", False),
-            ("Universal Audio Apollo", False),
         ],
     )
     def test_is_rme_device(self, name, expected):
-        """Test RME device detection by name."""
+        """Test RME device detection by name (backward compatibility)."""
         manager = AudioDeviceManager()
         assert manager._is_rme_device(name) is expected
 
-    def test_rme_detection_case_insensitive(self):
-        """Test that RME detection is case insensitive."""
-        manager = AudioDeviceManager()
-        assert manager._is_rme_device("rme ucx ii") is True
-        assert manager._is_rme_device("FIREFACE 802") is True
+    def test_detection_case_insensitive(self):
+        """Test that detection is case insensitive."""
+        assert AudioDeviceManager._detect_manufacturer("rme ucx ii") == "rme"
+        assert AudioDeviceManager._detect_manufacturer("FIREFACE 802") == "rme"
+        assert AudioDeviceManager._detect_manufacturer("FOCUSRITE scarlett") == "focusrite"
 
 
 class TestAudioDeviceManager:
@@ -156,7 +201,7 @@ class TestAudioDeviceManager:
             assert all(isinstance(d, AudioDevice) for d in devices)
 
     def test_get_rme_devices(self, mock_devices, mock_hostapis):
-        """Test filtering for RME devices."""
+        """Test filtering for RME devices (backward compatibility)."""
         with (
             patch("sounddevice.query_devices", return_value=mock_devices),
             patch("sounddevice.query_hostapis", return_value=mock_hostapis),
@@ -167,6 +212,27 @@ class TestAudioDeviceManager:
             assert len(rme_devices) == 1
             assert rme_devices[0].name == "RME UCX II"
             assert rme_devices[0].is_rme is True
+            assert rme_devices[0].manufacturer == "rme"
+
+    def test_get_devices_by_manufacturer(self, mock_devices, mock_hostapis):
+        """Test filtering devices by manufacturer."""
+        with (
+            patch("sounddevice.query_devices", return_value=mock_devices),
+            patch("sounddevice.query_hostapis", return_value=mock_hostapis),
+        ):
+            manager = AudioDeviceManager()
+
+            rme_devices = manager.get_devices_by_manufacturer("rme")
+            assert len(rme_devices) == 1
+            assert rme_devices[0].name == "RME UCX II"
+
+            focusrite_devices = manager.get_devices_by_manufacturer("focusrite")
+            assert len(focusrite_devices) == 1
+            assert focusrite_devices[0].name == "Focusrite Scarlett 2i2"
+
+            # Unknown manufacturer returns empty
+            unknown = manager.get_devices_by_manufacturer("unknown")
+            assert len(unknown) == 0
 
     def test_get_input_devices(self, mock_devices, mock_hostapis):
         """Test filtering for input devices."""
@@ -192,8 +258,8 @@ class TestAudioDeviceManager:
             assert len(output_devices) == 3  # Output, RME, Scarlett
             assert all(d.has_outputs for d in output_devices)
 
-    def test_get_default_device_prefers_rme(self, mock_devices, mock_hostapis):
-        """Test that default device prefers RME."""
+    def test_get_default_device_prefers_full_io(self, mock_devices, mock_hostapis):
+        """Test that default device prefers devices with both inputs and outputs."""
         with (
             patch("sounddevice.query_devices", return_value=mock_devices),
             patch("sounddevice.query_hostapis", return_value=mock_hostapis),
@@ -202,12 +268,15 @@ class TestAudioDeviceManager:
             default = manager.get_default_device()
 
             assert default is not None
-            assert default.name == "RME UCX II"
-            assert default.is_rme is True
+            # Should prefer device with both inputs and outputs
+            assert default.has_inputs is True
+            assert default.has_outputs is True
+            # First alphabetically among full I/O devices
+            assert default.name in ["Focusrite Scarlett 2i2", "RME UCX II"]
 
-    def test_get_default_device_no_rme(self, mock_hostapis):
-        """Test default device when no RME available."""
-        non_rme_devices = [
+    def test_get_default_device_no_full_io(self, mock_hostapis):
+        """Test default device when no device has both inputs and outputs."""
+        io_only_devices = [
             {
                 "name": "Built-in Microphone",
                 "max_input_channels": 2,
@@ -225,15 +294,15 @@ class TestAudioDeviceManager:
         ]
 
         with (
-            patch("sounddevice.query_devices", return_value=non_rme_devices),
+            patch("sounddevice.query_devices", return_value=io_only_devices),
             patch("sounddevice.query_hostapis", return_value=mock_hostapis),
             patch("sounddevice.default", MagicMock(device=[0, 1])),
         ):
             manager = AudioDeviceManager()
             default = manager.get_default_device()
 
+            # Should fall back to system default
             assert default is not None
-            assert default.is_rme is False
 
     def test_get_device_by_id(self, mock_devices, mock_hostapis):
         """Test getting device by ID."""
@@ -316,7 +385,6 @@ class TestLevelMonitor:
             max_input_channels=2,
             max_output_channels=2,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
 
@@ -337,7 +405,6 @@ class TestLevelMonitor:
             max_input_channels=0,
             max_output_channels=2,
             default_sample_rate=48000,
-            is_rme=False,
             hostapi="Core Audio",
         )
 

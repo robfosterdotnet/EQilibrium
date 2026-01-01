@@ -1,29 +1,35 @@
 """Audio device detection and management.
 
-Handles enumeration of audio devices with special detection for
-RME interfaces (UCX II, 802 FS, UFX+, etc.).
+Handles enumeration of audio devices for room measurement.
+Works with any CoreAudio-compatible interface.
 """
 
 import re
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import sounddevice as sd
 from numpy.typing import NDArray
 
-# RME device name patterns
-RME_PATTERNS = [
-    r"RME",
-    r"Fireface",
-    r"UCX",
-    r"UFX",
-    r"Babyface",
-    r"MADIface",
-    r"ADI-2",
-    r"802",
-    r"Digiface",
-]
+# Known manufacturer patterns (for informational purposes only, not filtering)
+KNOWN_MANUFACTURERS = {
+    "rme": [
+        r"RME", r"Fireface", r"UCX", r"UFX", r"Babyface", r"MADIface", r"ADI-2", r"802", r"Digiface"
+    ],
+    "motu": [r"MOTU", r"M2", r"M4", r"UltraLite", r"828"],
+    "focusrite": [r"Focusrite", r"Scarlett", r"Clarett"],
+    "universal_audio": [r"Universal Audio", r"Apollo", r"Volt"],
+    "presonus": [r"PreSonus", r"AudioBox", r"Studio"],
+    "behringer": [r"Behringer", r"UMC", r"U-PHORIA"],
+    "steinberg": [r"Steinberg", r"UR"],
+    "audient": [r"Audient", r"iD"],
+    "native_instruments": [r"Native Instruments", r"Komplete Audio"],
+    "apogee": [r"Apogee", r"Duet", r"Quartet"],
+}
+
+# Legacy: RME patterns for backward compatibility
+RME_PATTERNS = KNOWN_MANUFACTURERS["rme"]
 
 
 @dataclass
@@ -35,8 +41,18 @@ class AudioDevice:
     max_input_channels: int
     max_output_channels: int
     default_sample_rate: float
-    is_rme: bool
     hostapi: str
+    manufacturer: str = ""  # Detected manufacturer (if known)
+
+    # Backward compatibility: is_rme is now computed from manufacturer
+    _is_rme_override: bool | None = field(default=None, repr=False)
+
+    @property
+    def is_rme(self) -> bool:
+        """Check if this is an RME device (for backward compatibility)."""
+        if self._is_rme_override is not None:
+            return self._is_rme_override
+        return self.manufacturer == "rme"
 
     @property
     def has_inputs(self) -> bool:
@@ -73,12 +89,24 @@ class AudioDeviceManager:
 
     def get_rme_devices(self) -> list[AudioDevice]:
         """
-        Return RME devices only.
+        Return RME devices only (for backward compatibility).
 
         Returns:
             List of AudioDevice objects that are RME interfaces
         """
         return [d for d in self.get_devices() if d.is_rme]
+
+    def get_devices_by_manufacturer(self, manufacturer: str) -> list[AudioDevice]:
+        """
+        Return devices from a specific manufacturer.
+
+        Args:
+            manufacturer: Manufacturer ID (e.g., "rme", "motu", "focusrite")
+
+        Returns:
+            List of AudioDevice objects from that manufacturer
+        """
+        return [d for d in self.get_devices() if d.manufacturer == manufacturer.lower()]
 
     def get_input_devices(self) -> list[AudioDevice]:
         """
@@ -100,36 +128,39 @@ class AudioDeviceManager:
 
     def get_default_device(self) -> AudioDevice | None:
         """
-        Return preferred device (RME if available, otherwise system default).
+        Return the default/preferred device.
+
+        Prefers devices with both inputs and outputs (suitable for measurement).
+        Falls back to system default if available.
 
         Returns:
             Preferred AudioDevice or None if no devices available
         """
-        rme_devices = self.get_rme_devices()
-        if rme_devices:
-            # Prefer RME device with both inputs and outputs
-            for device in rme_devices:
-                if device.has_inputs and device.has_outputs:
-                    return device
-            return rme_devices[0]
+        devices = self.get_devices()
+        if not devices:
+            return None
+
+        # First, prefer devices with both inputs and outputs
+        full_devices = [d for d in devices if d.has_inputs and d.has_outputs]
+        if full_devices:
+            # Sort by name for consistency
+            full_devices.sort(key=lambda d: d.name)
+            return full_devices[0]
 
         # Fall back to system default
-        devices = self.get_devices()
-        if devices:
-            try:
-                default_input = sd.default.device[0]
-                default_output = sd.default.device[1]
+        try:
+            default_input = sd.default.device[0]
+            default_output = sd.default.device[1]
 
-                # Try to find a device that matches both defaults
-                for device in devices:
-                    if device.id == default_input or device.id == default_output:
-                        return device
+            # Try to find a device that matches the defaults
+            for device in devices:
+                if device.id == default_input or device.id == default_output:
+                    return device
+        except Exception:
+            pass
 
-                return devices[0]
-            except Exception:
-                return devices[0] if devices else None
-
-        return None
+        # Just return first device
+        return devices[0] if devices else None
 
     def get_device_by_id(self, device_id: int) -> AudioDevice | None:
         """
@@ -254,8 +285,8 @@ class AudioDeviceManager:
                 hostapi_idx = dev.get("hostapi", 0)
                 hostapi_name = hostapis[hostapi_idx]["name"] if hostapi_idx < len(hostapis) else ""
 
-                # Check if it's an RME device
-                is_rme = self._is_rme_device(dev["name"])
+                # Detect manufacturer
+                manufacturer = self._detect_manufacturer(dev["name"])
 
                 devices.append(
                     AudioDevice(
@@ -264,8 +295,8 @@ class AudioDeviceManager:
                         max_input_channels=dev["max_input_channels"],
                         max_output_channels=dev["max_output_channels"],
                         default_sample_rate=dev["default_samplerate"],
-                        is_rme=is_rme,
                         hostapi=hostapi_name,
+                        manufacturer=manufacturer,
                     )
                 )
         except Exception:
@@ -274,8 +305,29 @@ class AudioDeviceManager:
         return devices
 
     @staticmethod
+    def _detect_manufacturer(name: str) -> str:
+        """
+        Detect device manufacturer from name.
+
+        Args:
+            name: Device name
+
+        Returns:
+            Manufacturer ID or empty string if unknown
+        """
+        for manufacturer, patterns in KNOWN_MANUFACTURERS.items():
+            for pattern in patterns:
+                if re.search(pattern, name, re.IGNORECASE):
+                    return manufacturer
+        return ""
+
+    @staticmethod
     def _is_rme_device(name: str) -> bool:
-        """Check if device name matches RME patterns."""
+        """
+        Check if device name matches RME patterns.
+
+        Kept for backward compatibility.
+        """
         for pattern in RME_PATTERNS:
             if re.search(pattern, name, re.IGNORECASE):
                 return True

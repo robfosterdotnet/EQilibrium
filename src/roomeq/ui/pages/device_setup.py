@@ -22,7 +22,7 @@ class DeviceSetupPage(QWizardPage):
     """Device setup page for selecting audio interface and channels.
 
     Shows:
-    - Auto-detected RME interface selection
+    - Audio interface selection
     - Input channel selection (for microphone)
     - Output channel selection (for speakers)
     - Test button with level meter
@@ -33,7 +33,7 @@ class DeviceSetupPage(QWizardPage):
 
         self.setTitle("Audio Device Setup")
         self.setSubTitle(
-            "Select your RME interface and configure input/output channels."
+            "Select your audio interface and configure input/output channels."
         )
 
         self._device_manager = AudioDeviceManager()
@@ -134,20 +134,27 @@ class DeviceSetupPage(QWizardPage):
         # Clear the cached device list to force re-enumeration
         self._device_manager.refresh()
         devices = self._device_manager.get_devices()
-        rme_devices = [d for d in devices if d.is_rme]
-        other_devices = [d for d in devices if not d.is_rme]
 
-        # Add RME devices first (preferred)
-        for device in rme_devices:
-            self.device_combo.addItem(f"⭐ {device.name}", device)
+        # Filter to devices that have both inputs and outputs (most useful for measurement)
+        full_devices = [d for d in devices if d.has_inputs and d.has_outputs]
+        input_only = [d for d in devices if d.has_inputs and not d.has_outputs]
+        output_only = [d for d in devices if d.has_outputs and not d.has_inputs]
 
-        # Add separator if both types exist
-        if rme_devices and other_devices:
-            self.device_combo.insertSeparator(len(rme_devices))
-
-        # Add other devices
-        for device in other_devices:
+        # Add full devices first (most useful)
+        for device in sorted(full_devices, key=lambda d: d.name):
             self.device_combo.addItem(device.name, device)
+
+        # Add separator if we have other device types
+        if full_devices and (input_only or output_only):
+            self.device_combo.insertSeparator(len(full_devices))
+
+        # Add input-only devices
+        for device in sorted(input_only, key=lambda d: d.name):
+            self.device_combo.addItem(f"{device.name} (input only)", device)
+
+        # Add output-only devices
+        for device in sorted(output_only, key=lambda d: d.name):
+            self.device_combo.addItem(f"{device.name} (output only)", device)
 
         if not devices:
             self.device_combo.addItem("No devices found", None)
@@ -164,7 +171,9 @@ class DeviceSetupPage(QWizardPage):
                 f"Outputs: {self._selected_device.max_output_channels}"
             )
             self.device_info_label.setText(info_text)
-            style = "color: green;" if self._selected_device.is_rme else "color: orange;"
+            # Green if device has both inputs and outputs, orange otherwise
+            has_both = self._selected_device.has_inputs and self._selected_device.has_outputs
+            style = "color: green;" if has_both else "color: orange;"
             self.device_info_label.setStyleSheet(style)
 
             # Update channel spinbox limits

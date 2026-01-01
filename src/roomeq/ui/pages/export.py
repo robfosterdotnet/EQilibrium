@@ -7,6 +7,7 @@ import numpy as np
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -23,7 +24,15 @@ from PyQt6.QtWidgets import (
 
 from roomeq.core.analysis import AnalysisResult
 from roomeq.core.eq_optimizer import OptimizationResult, optimize_eq
-from roomeq.core.rme_export import export_to_file
+from roomeq.core.export_formats import (
+    ExportFormat,
+    get_export_format,
+)
+from roomeq.core.interface_profiles import (
+    InterfaceProfile,
+    get_all_profiles,
+    get_profile,
+)
 from roomeq.ui.widgets import ComparisonPlot
 
 
@@ -47,10 +56,12 @@ class ExportPage(QWizardPage):
 
         self.setTitle("Export EQ Settings")
         self.setSubTitle(
-            "Review the generated correction EQ and export for RME TotalMix."
+            "Review the generated correction EQ and export for your audio interface."
         )
 
         self._exported_files: list[Path] = []
+        self._selected_profile: InterfaceProfile | None = None
+        self._selected_export_format: ExportFormat | None = None
         self._left_optimization: OptimizationResult | None = None
         self._right_optimization: OptimizationResult | None = None
         self._left_analysis: AnalysisResult | None = None
@@ -113,11 +124,23 @@ class ExportPage(QWizardPage):
         bottom_layout.addWidget(eq_group, stretch=2)
 
         # Export section
-        export_group = QGroupBox("Export to TotalMix")
+        export_group = QGroupBox("Export Settings")
         export_layout = QVBoxLayout()
 
+        # Interface profile selector
+        profile_label = QLabel("Export Format:")
+        export_layout.addWidget(profile_label)
+
+        self.profile_combo = QComboBox()
+        for profile in get_all_profiles():
+            self.profile_combo.addItem(profile.name, profile.id)
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        export_layout.addWidget(self.profile_combo)
+
+        export_layout.addSpacing(10)
+
         # Export button
-        self.export_btn = QPushButton("Export Room EQ Preset...")
+        self.export_btn = QPushButton("Export EQ Preset...")
         self.export_btn.setStyleSheet(
             "font-weight: bold; font-size: 14px; padding: 10px; "
             "background-color: #3498db; color: white;"
@@ -127,15 +150,11 @@ class ExportPage(QWizardPage):
 
         export_layout.addSpacing(10)
 
-        # Instructions
-        instructions = QLabel(
-            "Exports a .tmreq preset file that can be\n"
-            "loaded directly in TotalMix FX Room EQ.\n\n"
-            "Both left and right channel corrections\n"
-            "are included in a single file."
-        )
-        instructions.setStyleSheet("color: #888; font-size: 11px;")
-        export_layout.addWidget(instructions)
+        # Instructions (dynamic based on selected profile)
+        self.instructions_label = QLabel("")
+        self.instructions_label.setStyleSheet("color: #888; font-size: 11px;")
+        self.instructions_label.setWordWrap(True)
+        export_layout.addWidget(self.instructions_label)
 
         export_layout.addSpacing(10)
 
@@ -331,39 +350,79 @@ class ExportPage(QWizardPage):
             self.improvement_label.setText("No optimization available")
             self.improvement_label.setStyleSheet("font-weight: bold; color: gray;")
 
+    def _on_profile_changed(self, index: int) -> None:
+        """Handle profile selection change."""
+        profile_id = self.profile_combo.currentData()
+        if profile_id:
+            self._selected_profile = get_profile(profile_id)
+            if self._selected_profile:
+                # Get the first available export format for this profile
+                if self._selected_profile.export_formats:
+                    format_type = self._selected_profile.export_formats[0]
+                    self._selected_export_format = get_export_format(
+                        format_type, self._selected_profile
+                    )
+                    # Update instructions
+                    self.instructions_label.setText(
+                        self._selected_export_format.get_import_instructions()
+                    )
+                else:
+                    self._selected_export_format = None
+                    self.instructions_label.setText("")
+
     def _export_preset(self) -> None:
-        """Export EQ settings as TotalMix preset."""
+        """Export EQ settings using the selected format."""
+        if not self._selected_export_format:
+            QMessageBox.warning(
+                self,
+                "No Export Format",
+                "Please select an export format first."
+            )
+            return
+
+        # Get file extension and filter from selected format
+        ext = self._selected_export_format.get_file_extension()
+        format_name = self._selected_profile.name if self._selected_profile else "EQ"
+
+        # Build file filter
+        if ext:
+            file_filter = f"{format_name} (*{ext});;All Files (*)"
+            default_name = f"room_eq{ext}"
+        else:
+            file_filter = "All Files (*)"
+            default_name = "room_eq.txt"
+
         filename, _ = QFileDialog.getSaveFileName(
             self,
-            "Export TotalMix Room EQ Preset",
-            "room_eq.tmreq",
-            "TotalMix Preset (*.tmreq);;All Files (*)"
+            f"Export {format_name} Preset",
+            default_name,
+            file_filter
         )
 
         if filename:
             filepath = Path(filename)
-            # Ensure .tmreq extension
-            if filepath.suffix.lower() != ".tmreq":
-                filepath = filepath.with_suffix(".tmreq")
+            # Ensure correct extension if one is expected
+            if ext and filepath.suffix.lower() != ext.lower():
+                filepath = filepath.with_suffix(ext)
 
             # Get settings from optimizations
             left_settings = self._left_optimization.settings if self._left_optimization else None
             right_settings = self._right_optimization.settings if self._right_optimization else None
 
-            export_to_file(filepath, left_settings, right_settings)
+            # Export using selected format
+            self._selected_export_format.export_to_file(filepath, left_settings, right_settings)
 
             self._exported_files.append(filepath)
             self._update_export_status()
 
+            # Show completion message with format-specific instructions
+            instructions = self._selected_export_format.get_import_instructions()
             QMessageBox.information(
                 self,
                 "Export Complete",
                 f"Exported: {filepath.name}\n\n"
                 f"Location: {filepath.parent}\n\n"
-                "To import in TotalMix:\n"
-                "1. Open Room EQ panel\n"
-                "2. Click Preset → Load Preset...\n"
-                "3. Select the .tmreq file"
+                f"{instructions}"
             )
 
     def _update_export_status(self) -> None:
@@ -375,6 +434,10 @@ class ExportPage(QWizardPage):
 
     def initializePage(self) -> None:  # noqa: N802
         """Initialize when page is shown."""
+        # Initialize profile selection (trigger change handler for first item)
+        if self.profile_combo.count() > 0:
+            self._on_profile_changed(0)
+
         # Run optimization on analysis results
         self._run_optimization()
         self._populate_eq_table()
