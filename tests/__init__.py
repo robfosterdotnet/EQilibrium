@@ -1,0 +1,1 @@
+"""RoomEQ test suite."""

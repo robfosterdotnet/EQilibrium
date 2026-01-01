@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roomeq"
+version = "0.1.0"
+description = "Simple Room EQ Wizard for RME Audio Interfaces"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Rob Foster" }
+]
+keywords = ["audio", "room-correction", "eq", "rme", "dsp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "sounddevice>=0.4.6",
+    "PyQt6>=6.5.0",
+    "pyqtgraph>=0.13.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-qt>=4.2.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+roomeq = "roomeq.app:main"
+
+[project.gui-scripts]
+roomeq-gui = "roomeq.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/roomeq"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
